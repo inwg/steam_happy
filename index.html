@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>:D</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img id="brandFace" src="steam-happy-but-high-quality-v0-22ku6htw4u0c1.webp" alt="Steam Happy" />
+      <div class="brand-text">
+        <h1>Steam Happy :D</h1>
+        <p>5555555555</p>
+      </div>
+    </div>
+
+    <div class="toolbar" role="toolbar" aria-label="Drawing tools">
+      <label class="control">
+        <span>大小 <b id="sizeVal">48</b></span>
+        <input id="size" type="range" min="12" max="180" value="48" />
+      </label>
+      <label class="control">
+        <span>密度  <b id="densityVal">55</b></span>
+        <input id="density" type="range" min="1" max="100" value="55" />
+      </label>
+      <label class="control">
+        <span>打亂  <b id="chaosVal">40</b></span>
+        <input id="chaos" type="range" min="0" max="100" value="40" />
+      </label>
+
+      <div class="btn-group">
+        <button id="undo" class="btn" title="Undo (Ctrl/Cmd+Z)">↶ 取消</button>
+        <button id="clear" class="btn btn-danger" title="Clear canvas">🗑 清除</button>
+        <button id="save" class="btn btn-primary" title="Save PNG">⭳ 保存</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <canvas id="canvas"></canvas>
+    <div class="hint" id="hint">
+      <img src="steam-happy-but-high-quality-v0-22ku6htw4u0c1.webp" alt="" />
+      <span>點選並拖曳，用Steam Happy畫畫</span>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
