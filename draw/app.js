@@ -56,7 +56,7 @@ function setupCanvas(preserve) {
   canvas.style.height = cssH + "px";
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#0c0c11";
   ctx.fillRect(0, 0, cssW, cssH);
 
   if (temp) {
@@ -179,7 +179,7 @@ function onUp(e) {
 function clearCanvas() {
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#0c0c11";
   ctx.fillRect(0, 0, cssW, cssH);
   ctx.restore();
   history.length = 0;

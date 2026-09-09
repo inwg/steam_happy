@@ -1,9 +1,7 @@
-/* Steam Happy 畫板 — visual system
- * Deliberate choices (not defaults):
- *  - Palette derived from Steam client + the mascot's yellow, no purple/blue AI gradient
- *  - 8px spacing scale + fixed radius scale applied consistently
- *  - Surfaces/elevation separate content instead of accent-colored borders
- *  - Fredoka (rounded display) matches the goofy mascot; Nunito for legible controls
+/* Steam Happy 畫板 — restyled to match the main site
+ * Dark, minimal aesthetic: near-black background with a soft violet glow,
+ * Inter typography, muted lavender text (rgba(231,233,255,*)),
+ * and violet (#8b5cf6) accents replacing the old Steam yellow/blue.
  */
 :root {
   /* spacing scale (8px base) */
@@ -19,23 +17,24 @@
   --r-md: 12px;
   --r-lg: 18px;
 
-  /* Steam-derived palette */
-  --bg-0: #0f141b;
-  --bg-1: #171a21;
-  --surface: #1b2838;
-  --surface-2: #223549;
-  --surface-3: #2b4059;
+  /* palette — matched to the main site */
+  --bg-0: #09090b;
+  --bg-1: #09090b;
+  --surface:   rgba(255, 255, 255, 0.035);
+  --surface-2: rgba(255, 255, 255, 0.055);
+  --surface-3: rgba(255, 255, 255, 0.09);
   --line: rgba(255, 255, 255, 0.08);
 
-  --brand: #f2b90f;        /* Steam Happy yellow */
-  --brand-deep: #c99700;
-  --brand-ink: #3a2c00;
-  --steam-blue: #66c0f4;   /* secondary accent, used sparingly */
+  --brand: #8b5cf6;        /* violet accent */
+  --brand-deep: #7c3aed;
+  --accent: #a78bfa;       /* lighter violet for values */
 
-  --text: #eef3f8;
-  --text-dim: #aebccd;     /* meets AA on --surface */
-  --paper: #ffffff;
-  --paper-ink: #55606e;
+  --text: rgba(231, 233, 255, 0.92);
+  --text-dim: rgba(231, 233, 255, 0.55);
+  --text-faint: rgba(231, 233, 255, 0.32);
+
+  --paper: #0c0c11;        /* drawing surface (dark) */
+  --paper-ink: rgba(231, 233, 255, 0.45);
 }
 
 * { box-sizing: border-box; }
@@ -46,10 +45,15 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  font-family: "Nunito", system-ui, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 16px;
   color: var(--text);
-  background: linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(139, 92, 246, 0.06) 0%, transparent 60%),
+    var(--bg-0);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -62,10 +66,14 @@ body {
   flex-wrap: wrap;
   gap: var(--sp-4);
   padding: var(--sp-3) var(--sp-5);
-  background: var(--surface);
+  background: rgba(13, 13, 17, 0.7);
   border-bottom: 1px solid var(--line);
-  box-shadow: 0 var(--sp-1) var(--sp-4) rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   z-index: 5;
+
+  opacity: 0;
+  animation: fade_down .55s cubic-bezier(.2, .8, .2, 1) forwards;
 }
 
 .brand {
@@ -75,10 +83,10 @@ body {
 }
 
 .brand img {
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
-  filter: drop-shadow(0 var(--sp-1) 10px rgba(242, 185, 15, 0.35));
+  filter: drop-shadow(0 2px 12px rgba(139, 92, 246, 0.35));
   animation: bob 3.4s ease-in-out infinite;
 }
 
@@ -89,17 +97,17 @@ body {
 
 .brand-text h1 {
   margin: 0;
-  font-family: "Fredoka", sans-serif;
-  font-weight: 700;
-  font-size: clamp(20px, 2.4vw, 27px);
+  font-weight: 600;
+  font-size: clamp(18px, 2.4vw, 24px);
+  letter-spacing: -0.4px;
   line-height: 1.1;
-  color: var(--brand);
+  color: rgba(231, 233, 255, 0.9);
 }
 
 .brand-text p {
-  margin: var(--sp-1) 0 0;
+  margin: 3px 0 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text-dim);
 }
 
@@ -128,7 +136,7 @@ body {
 .control-label {
   grid-column: 1;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
   color: var(--text-dim);
 }
 
@@ -137,10 +145,9 @@ body {
   justify-self: end;
   min-width: 2ch;
   text-align: right;
-  font-family: "Fredoka", sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--steam-blue);
+  color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
 
@@ -149,7 +156,7 @@ input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 6px;
+  height: 4px;
   margin: var(--sp-1) 0 0;
   border-radius: 999px;
   background: var(--surface-3);
@@ -159,11 +166,11 @@ input[type="range"] {
 
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--brand);
-  border: 3px solid var(--surface);
+  border: 3px solid #14121b;
   box-shadow: 0 0 0 1px var(--brand-deep);
   cursor: grab;
   transition: transform 0.12s ease;
@@ -171,17 +178,17 @@ input[type="range"]::-webkit-slider-thumb {
 input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.15); }
 
 input[type="range"]::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--brand);
-  border: 3px solid var(--surface);
+  border: 3px solid #14121b;
   box-shadow: 0 0 0 1px var(--brand-deep);
   cursor: grab;
 }
 
 input[type="range"]:focus-visible {
-  box-shadow: 0 0 0 3px rgba(102, 192, 244, 0.5);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.5);
 }
 
 /* ---------- Buttons ---------- */
@@ -191,21 +198,21 @@ input[type="range"]:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  font-family: "Fredoka", sans-serif;
-  font-weight: 600;
-  font-size: 15px;
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 14px;
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--line);
   padding: var(--sp-2) var(--sp-4);
   border-radius: var(--r-md);
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.08s ease, color 0.15s ease;
+  transition: background 0.15s ease, transform 0.08s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .btn .ic {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -215,20 +222,24 @@ input[type="range"]:focus-visible {
 
 .btn:hover { background: var(--surface-3); transform: translateY(-1px); }
 .btn:active { transform: translateY(0) scale(0.98); }
-.btn:focus-visible { outline: 2px solid var(--steam-blue); outline-offset: 2px; }
+.btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 /* destructive intent shown through color, not a neon border */
-.btn-clear:hover { background: #3a2630; color: #ff8a8a; }
-
-/* primary: solid brand with a hard bottom edge = tactile, playful, on-brand */
-.btn-save {
-  color: var(--brand-ink);
-  background: var(--brand);
-  border: none;
-  box-shadow: 0 3px 0 var(--brand-deep);
+.btn-clear:hover {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.25);
 }
-.btn-save:hover { background: #ffc824; transform: translateY(-1px); box-shadow: 0 4px 0 var(--brand-deep); }
-.btn-save:active { transform: translateY(3px); box-shadow: 0 0 0 var(--brand-deep); }
+
+/* primary: solid violet with a soft glow = on-brand with the main site */
+.btn-save {
+  color: #fff;
+  background: var(--brand);
+  border: 1px solid transparent;
+  box-shadow: 0 2px 16px rgba(139, 92, 246, 0.35);
+}
+.btn-save:hover { background: #9d6bff; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(139, 92, 246, 0.45); }
+.btn-save:active { transform: translateY(0) scale(0.98); box-shadow: 0 2px 12px rgba(139, 92, 246, 0.3); }
 
 /* ---------- Stage / Canvas ---------- */
 .stage {
@@ -238,8 +249,11 @@ input[type="range"]:focus-visible {
   border-radius: var(--r-lg);
   overflow: hidden;
   background: var(--paper);
-  border: 1px solid rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+
+  opacity: 0;
+  animation: enter .55s cubic-bezier(.2, .8, .2, 1) .12s forwards;
 }
 
 #canvas {
@@ -260,19 +274,32 @@ input[type="range"]:focus-visible {
   gap: var(--sp-4);
   pointer-events: none;
   color: var(--paper-ink);
-  font-family: "Fredoka", sans-serif;
-  font-size: 19px;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.2px;
   transition: opacity 0.4s ease;
 }
 
 .hint img {
-  width: 116px;
-  height: 116px;
+  width: 104px;
+  height: 104px;
   object-fit: contain;
+  opacity: .9;
   animation: bob 3s ease-in-out infinite;
 }
 
 .hint.hidden { opacity: 0; }
+
+/* ---------- Entrance animations (match main site) ---------- */
+@keyframes enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade_down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 /* ---------- Responsive ---------- */
 @media (max-width: 760px) {
@@ -290,5 +317,6 @@ input[type="range"]:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .brand img,
   .hint img { animation: none; }
+  .topbar, .stage { animation: none; opacity: 1; }
   * { transition: none !important; }
 }
