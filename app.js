@@ -194,7 +194,7 @@ function savePng() {
     link.href = canvas.toDataURL("image/png");
     link.click();
   } catch (e) {
-    alert("Could not export the image. Please run this page from a local web server (not file://) so saving works.");
+    alert("無法匯出圖片。請透過本機伺服器（而非 file://）開啟本頁，下載功能才能正常運作。");
   }
 }
 
