@@ -1,0 +1,215 @@
+* { box-sizing: border-box; }
+
+:root{
+  --bg0:#09090b;
+  --bg1:#09090b;
+
+  --title-snap: 0px;
+  --links-drop: 0px;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  position: fixed;
+  background-color: var(--bg0);
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(139, 92, 246, 0.06) 0%, transparent 60%),
+    var(--bg0);
+  overflow:hidden;
+
+  min-height: 100dvh;
+  min-height: 100vh;    /* fallback */
+  overflow-x: hidden;
+  overscroll-behavior: none;
+}
+
+.grid{ display:none; }
+
+/* Thin separator line under steam angry (fades at edges) */
+.sh_separator {
+  width: 160px;
+  height: 1px;
+  margin: 8px auto 6px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(231,233,255,0.14) 25%,
+    rgba(231,233,255,0.22) 50%,
+    rgba(231,233,255,0.14) 75%,
+    transparent 100%
+  );
+}
+
+.center_wrap {
+  min-height: 100dvh;  
+  min-height: 100vh;    /* fallback */
+  display: grid;
+  place-items: center;
+  padding: 0;
+
+  overflow: hidden;
+}
+
+.center_stack {
+  text-align: center;
+  display: grid;
+  gap: 2px;
+
+  opacity: 0;
+
+  position: relative;
+  top: 6px;
+
+  animation: enter .55s cubic-bezier(.2,.8,.2,1) forwards;
+}
+
+.sh_text{
+  margin: 0;
+  font-size: clamp(16px, 5.4vw, 30px);
+  letter-spacing: -0.4px;
+
+  line-height: 1;         
+  padding-bottom: 0.15em;     
+
+  position: relative;
+  display: inline-block;
+
+  color: rgba(231,233,255,.6);
+  /*text-shadow: 0 12px 48px rgba(0,0,0,.45);*/
+
+  transform: translateY(var(--title-snap));
+}
+
+/* steam angry shine tech d-_-b */
+.sh_text::after{
+  content: attr(data_text);
+  position: absolute;
+
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: -0.12em;          
+
+  pointer-events: none;
+  text-shadow: none;
+
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+
+  -webkit-background-clip: text;
+  background-clip: text;
+
+  background-image: linear-gradient(
+    110deg,
+    transparent 0%,
+    rgba(255,255,255,0.00) 46%,
+    rgba(255,255,255,1.0) 50%,
+    rgba(255,255,255,0.00) 54%,
+    transparent 100%
+  );
+
+  background-size: 240% 100%;
+  background-repeat: no-repeat;
+  background-position: 140% 0;
+
+  opacity: 0;
+  filter: blur(0.15px);
+  animation: pandora_shine 8s ease-in-out infinite;
+}
+
+@keyframes pandora_shine {
+  0%   { opacity: 0; background-position: 140% 0; }
+  15%  { opacity: .75; }
+  55%  { opacity: .75; background-position: -140% 0; }
+  70%  { opacity: 0; }
+  100% { opacity: 0; background-position: -140% 0; }
+}
+
+.links_row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+
+  font-size: 13.5px;
+  line-height: 1;
+
+  margin-top: 0;
+
+  color: rgba(231,233,255,.68);
+
+  opacity: 0;
+
+  transform: translateY(calc(var(--title-snap) + var(--links-drop)));
+
+  position: relative;
+  top: 6px;
+
+  animation: enter .55s cubic-bezier(.2,.8,.2,1) .08s forwards;
+}
+
+.links_row a {
+  color: rgba(231,233,255,.72);
+  text-decoration: none;
+  padding: 1px 3px;
+  transition: color .14s ease, transform .14s ease;
+  font-size: inherit;
+}
+
+.links_row a:hover {
+  color: rgba(231,233,255,.95);
+  transform: translateY(-1px);
+}
+
+.link_sep {
+  opacity: .45;      
+  margin: 0 3px;
+  font-size: 12px;  
+}
+
+.footer_wrap {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 3px;
+  display: flex;
+  justify-content: space-between;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: fade_up .55s cubic-bezier(.2,.8,.2,1) .15s forwards;
+}
+
+.footer_item {
+  font-size: 12.5px;
+  color: rgba(231,233,255,.25);
+}
+
+.footer_link {
+  color: rgba(231,233,255,.35);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255,255,255,.12);
+  transition: color .14s ease, border-color .14s ease;
+}
+
+.footer_link:hover {
+  color: rgba(231,233,255,.65);
+  border-color: rgba(124,58,237,.25);
+}
+
+@keyframes enter {
+  to { opacity: 1; top: 0; }
+}
+
+@keyframes fade_up {
+  to { opacity: 1; transform: translateY(0); }
+}
