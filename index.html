@@ -1,42 +1,56 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>:D</title>
+  <title>Steam Happy 畫板 — 你畫的每一筆都會變成 Steam Happy</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <img id="brandFace" src="steam-happy-but-high-quality-v0-22ku6htw4u0c1.webp" alt="Steam Happy" />
+      <img id="brandFace" src="steam-happy-but-high-quality-v0-22ku6htw4u0c1.webp" alt="Steam Happy 笑臉" />
       <div class="brand-text">
-        <h1>Steam Happy :D</h1>
-        <p>5555555555</p>
+        <h1>Steam Happy 畫板</h1>
+        <p>拖曳滑鼠，筆跡會沿路蓋滿 Steam Happy 笑臉</p>
       </div>
     </div>
 
-    <div class="toolbar" role="toolbar" aria-label="Drawing tools">
-      <label class="control">
-        <span>大小 <b id="sizeVal">48</b></span>
-        <input id="size" type="range" min="12" max="180" value="48" />
-      </label>
-      <label class="control">
-        <span>密度  <b id="densityVal">55</b></span>
-        <input id="density" type="range" min="1" max="100" value="55" />
-      </label>
-      <label class="control">
-        <span>打亂  <b id="chaosVal">40</b></span>
-        <input id="chaos" type="range" min="0" max="100" value="40" />
-      </label>
+    <div class="toolbar" role="toolbar" aria-label="繪圖工具">
+      <div class="sliders">
+        <label class="control">
+          <span class="control-label">笑臉大小</span>
+          <input id="size" type="range" min="12" max="180" value="48" aria-label="笑臉大小" />
+          <output id="sizeVal" class="control-value">48</output>
+        </label>
+        <label class="control">
+          <span class="control-label">排列密度</span>
+          <input id="density" type="range" min="1" max="100" value="55" aria-label="排列密度" />
+          <output id="densityVal" class="control-value">55</output>
+        </label>
+        <label class="control">
+          <span class="control-label">隨機打亂</span>
+          <input id="chaos" type="range" min="0" max="100" value="40" aria-label="隨機打亂" />
+          <output id="chaosVal" class="control-value">40</output>
+        </label>
+      </div>
 
       <div class="btn-group">
-        <button id="undo" class="btn" title="Undo (Ctrl/Cmd+Z)">↶ 取消</button>
-        <button id="clear" class="btn btn-danger" title="Clear canvas">🗑 清除</button>
-        <button id="save" class="btn btn-primary" title="Save PNG">⭳ 保存</button>
+        <button id="undo" class="btn" title="復原 (Ctrl/Cmd+Z)">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h11a5 5 0 0 1 0 10H9"/><path d="M8 5 4 9l4 4"/></svg>
+          <span>復原</span>
+        </button>
+        <button id="clear" class="btn btn-clear" title="清空畫布">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6M14 11v6"/></svg>
+          <span>清空</span>
+        </button>
+        <button id="save" class="btn btn-save" title="下載成 PNG">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg>
+          <span>下載</span>
+        </button>
       </div>
     </div>
   </header>
@@ -45,7 +59,7 @@
     <canvas id="canvas"></canvas>
     <div class="hint" id="hint">
       <img src="steam-happy-but-high-quality-v0-22ku6htw4u0c1.webp" alt="" />
-      <span>點選並拖曳，用Steam Happy畫畫</span>
+      <span>點一下並拖曳，開始用 Steam Happy 作畫</span>
     </div>
   </main>
 
