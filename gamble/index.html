@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#09090b">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Case Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/webp" href="../draw/steam-happy-but-high-quality-v0-22ku6htw4u0c1.webp">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../" aria-label="Back to steam angry">
+        <span class="brand-mark"></span>
+        <span class="brand-name">Case Simulator</span>
+      </a>
+
+      <nav class="tabs" aria-label="Sections">
+        <button class="tab is-active" data-view="cases" type="button">Cases</button>
+        <button class="tab" data-view="inventory" type="button">
+          Inventory<span class="tab-badge" id="tabInvCount">0</span>
+        </button>
+        <button class="tab" data-view="contracts" type="button">Contracts</button>
+      </nav>
+
+      <div class="topbar-right">
+        <button class="wallet" id="wallet" type="button" title="Top up funds">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 6.5A2.5 2.5 0 0 1 5.5 4H17a1 1 0 0 1 0 2H5.5a.5.5 0 0 0 0 1H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6.5Zm14 6a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Z"/></svg>
+          <span class="wallet-amount" id="walletAmount">$0</span>
+          <span class="wallet-plus">+</span>
+        </button>
+        <button class="icon-btn" id="muteBtn" type="button" aria-pressed="false" title="Toggle sound">
+          <svg class="ic-sound" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4Zm12.5 3a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12Zm-2.5-8v2.06A7 7 0 0 1 14 19.94V22a9 9 0 0 0 0-18Z"/></svg>
+          <svg class="ic-mute" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4Zm15.7-1.3-1.4 1.4L20.58 12l-2.3 2.3 1.42 1.4L22 13.4l2.3 2.3 1.4-1.4L23.42 12l2.3-2.3-1.4-1.4L22 10.6l-2.3-2.9Z" transform="translate(-2)"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <!-- ============ CASES ============ -->
+    <section id="view-cases" class="view is-active" aria-label="Open cases">
+      <div class="opener" id="opener">
+        <div class="opener-head">
+          <img class="opener-thumb" id="openerThumb" alt="" width="72" height="72">
+          <div class="opener-meta">
+            <span class="eyebrow">Now selected</span>
+            <h1 class="opener-title" id="openerTitle">Loading</h1>
+          </div>
+          <div class="opener-actions">
+            <div class="odds-strip" id="oddsStrip" aria-hidden="true"></div>
+            <button class="btn btn-open" id="btnOpen" type="button">
+              <span class="btn-open-label">Open Case</span>
+              <span class="btn-open-cost" id="btnOpenCost">$2.50</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="reel-viewport" id="reelViewport">
+          <div class="reel-track" id="reelTrack"></div>
+          <div class="reel-marker" aria-hidden="true"></div>
+          <div class="reel-fade reel-fade-l" aria-hidden="true"></div>
+          <div class="reel-fade reel-fade-r" aria-hidden="true"></div>
+          <div class="reel-hint" id="reelHint">Press Open Case to spin</div>
+        </div>
+      </div>
+
+      <div class="section-head">
+        <h2 class="section-title">Choose a case</h2>
+        <span class="section-sub" id="caseCount"></span>
+      </div>
+      <div class="case-grid" id="caseGrid"></div>
+    </section>
+
+    <!-- ============ INVENTORY ============ -->
+    <section id="view-inventory" class="view" aria-label="Inventory" hidden>
+      <div class="section-head">
+        <h2 class="section-title">Inventory</h2>
+        <div class="inv-tools">
+          <label class="field">
+            <span class="field-lbl">Sort</span>
+            <select id="invSort">
+              <option value="new">Newest</option>
+              <option value="price">Price high to low</option>
+              <option value="rarity">Rarity</option>
+            </select>
+          </label>
+          <button class="btn btn-ghost btn-danger" id="btnClearInv" type="button">Clear all</button>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat"><span class="stat-val" id="statCount">0</span><span class="stat-lbl">Items owned</span></div>
+        <div class="stat"><span class="stat-val" id="statValue">$0</span><span class="stat-lbl">Inventory value</span></div>
+        <div class="stat"><span class="stat-val" id="statOpens">0</span><span class="stat-lbl">Cases opened</span></div>
+        <div class="stat"><span class="stat-val stat-best" id="statBest">None</span><span class="stat-lbl">Best pull</span></div>
+      </div>
+
+      <div class="inv-grid" id="invGrid"></div>
+      <div class="empty" id="invEmpty">
+        <p>Your inventory is empty.</p>
+        <button class="btn btn-open" data-goto="cases" type="button">Open a case</button>
+      </div>
+
+      <div class="section-head section-head-sub">
+        <h2 class="section-title">Recent pulls</h2>
+      </div>
+      <ul class="history" id="history"></ul>
+    </section>
+
+    <!-- ============ CONTRACTS ============ -->
+    <section id="view-contracts" class="view" aria-label="Trade up contracts" hidden>
+      <div class="section-head">
+        <h2 class="section-title">Trade Up Contract</h2>
+      </div>
+      <p class="contract-note">
+        Pick 10 items of the same rarity to trade them up into one item of the next tier.
+        Covert, knife and glove items cannot be traded up.
+      </p>
+
+      <div class="contract-stage">
+        <div class="contract-slots" id="contractSlots"></div>
+        <div class="contract-result">
+          <span class="eyebrow">Produces</span>
+          <div class="contract-target" id="contractTarget">Select 10 matching items</div>
+          <button class="btn btn-open" id="btnTradeUp" type="button" disabled>Trade Up</button>
+        </div>
+      </div>
+
+      <div class="section-head section-head-sub">
+        <h2 class="section-title">Eligible items</h2>
+        <span class="section-sub" id="contractHint"></span>
+      </div>
+      <div class="contract-pool" id="contractPool"></div>
+      <div class="empty" id="contractEmpty">
+        <p>You need Mil-Spec, Restricted or Classified items to build a contract.</p>
+        <button class="btn btn-open" data-goto="cases" type="button">Open a case</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ REVEAL OVERLAY ============ -->
+  <div class="reveal" id="reveal" hidden>
+    <div class="reveal-backdrop" id="revealBackdrop"></div>
+    <div class="reveal-card" id="revealCard" role="dialog" aria-modal="true" aria-label="Item revealed">
+      <div class="reveal-glow" id="revealGlow"></div>
+      <span class="reveal-rarity" id="revealRarity">Covert</span>
+      <div class="reveal-img-wrap">
+        <img class="reveal-img" id="revealImg" alt="">
+      </div>
+      <div class="reveal-names">
+        <span class="reveal-weapon" id="revealWeapon">AK-47</span>
+        <span class="reveal-skin" id="revealSkin">Redline</span>
+      </div>
+      <div class="reveal-tags" id="revealTags"></div>
+      <div class="reveal-price" id="revealPrice">$0.00</div>
+      <div class="reveal-actions">
+        <button class="btn btn-open" id="btnAgain" type="button">Open again</button>
+        <button class="btn btn-ghost" id="btnSellNow" type="button">Sell for $0</button>
+        <button class="btn btn-ghost" id="btnKeep" type="button">Keep</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" aria-live="polite"></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
