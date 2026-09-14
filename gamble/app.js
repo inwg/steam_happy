@@ -320,6 +320,7 @@
   function loadRealSounds(){
     if(realLoadStarted || !actx || !window.fetch) return;
     realLoadStarted = true;
+    if(!muted) toast('Sounds take a sec to load');
     // phase 1: everything the very first spin needs
     ['tick','open','drop1','drop2','click','hover','cantbuy'].forEach(fetchReal);
     // phase 2: the heavy hero sounds follow shortly after
