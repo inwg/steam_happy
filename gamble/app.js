@@ -1,6 +1,7 @@
 /* ============================================================
    Case Simulator - application logic
    Native JS, no build step. Reads window.CASE_DATA from data.js.
+   Multi-case opening (1/3/5), analytic reel timing, Web Audio SFX.
    ============================================================ */
 (function(){
   'use strict';
@@ -49,6 +50,14 @@
   const WIN_INDEX = 50;
   const REEL_LEN  = 56;
 
+  /* Spin feel: a per-row stagger so a batch lands one row after another
+     instead of all at once. Base duration is user-selectable (Fast/Normal/Slow). */
+  const SPIN_SPEEDS  = { fast:4.5, normal:9.5, slow:14.5 }; // seconds, first row
+  let   spinSpeed    = 'normal';
+  const SPIN_STAGGER = 0.55;  // extra seconds per additional row
+  const SPIN_EASE    = [0.08, 0.75, 0.14, 1]; // must match the CSS cubic-bezier
+  function spinDuration(){ return SPIN_SPEEDS[spinSpeed] || SPIN_SPEEDS.normal; }
+
   /* ---------- state ---------- */
   let CASES = [];
   let selectedCaseId = 0;
@@ -58,26 +67,30 @@
   let opens = 0;
   let muted = false;
   let spinning = false;
-  let currentReveal = null;
+  let currentReveal = [];      // items currently shown in the reveal overlay
+  let lastFocus = null;        // element to restore when reveal closes
 
   let contractPick = [];       // array of inventory item ids
   let contractRarity = null;   // rarity of current selection / filter
 
   /* ---------- storage ---------- */
-  const K = { inv:'cs.inv', hist:'cs.hist', wallet:'cs.wallet', opens:'cs.opens', muted:'cs.muted' };
+  const K = { inv:'cs.inv', hist:'cs.hist', wallet:'cs.wallet', opens:'cs.opens', muted:'cs.muted', speed:'cs.speed' };
   function load(){
     try{ inventory = JSON.parse(localStorage.getItem(K.inv)) || []; }catch(e){ inventory=[]; }
     try{ history   = JSON.parse(localStorage.getItem(K.hist)) || []; }catch(e){ history=[]; }
     const w = parseFloat(localStorage.getItem(K.wallet)); wallet = isNaN(w) ? START_WALLET : w;
     const o = parseInt(localStorage.getItem(K.opens),10); opens = isNaN(o) ? 0 : o;
     muted = localStorage.getItem(K.muted) === '1';
+    const sp = localStorage.getItem(K.speed);
+    if(sp && SPIN_SPEEDS[sp]) spinSpeed = sp;
   }
   const save = {
     inv(){ try{ localStorage.setItem(K.inv, JSON.stringify(inventory)); }catch(e){} },
     hist(){ try{ localStorage.setItem(K.hist, JSON.stringify(history)); }catch(e){} },
     wallet(){ try{ localStorage.setItem(K.wallet, String(wallet)); }catch(e){} },
     opens(){ try{ localStorage.setItem(K.opens, String(opens)); }catch(e){} },
-    muted(){ try{ localStorage.setItem(K.muted, muted?'1':'0'); }catch(e){} }
+    muted(){ try{ localStorage.setItem(K.muted, muted?'1':'0'); }catch(e){} },
+    speed(){ try{ localStorage.setItem(K.speed, spinSpeed); }catch(e){} }
   };
 
   /* ---------- utils ---------- */
@@ -93,6 +106,34 @@
     let r = Math.random()*total;
     for(let i=0;i<items.length;i++){ r-=weights[i]; if(r<0) return items[i]; }
     return items[items.length-1];
+  }
+
+  /* Cubic bezier solver. Mirrors the CSS transition timing function so the
+     tick loop can compute reel positions analytically with zero layout reads. */
+  function cubicBezier(x1, y1, x2, y2){
+    const cx = 3*x1, bx = 3*(x2-x1)-cx, ax = 1-cx-bx;
+    const cy = 3*y1, by = 3*(y2-y1)-cy, ay = 1-cy-by;
+    const sampleX = t => ((ax*t+bx)*t+cx)*t;
+    const sampleY = t => ((ay*t+by)*t+cy)*t;
+    const sampleD = t => (3*ax*t+2*bx)*t+cx;
+    return function(x){
+      let t = x;
+      for(let i=0;i<8;i++){
+        const d = sampleD(t);
+        if(Math.abs(d) < 1e-6) break;
+        t -= (sampleX(t)-x)/d;
+      }
+      if(t<0 || t>1 || Math.abs(sampleX(t)-x) > 1e-4){
+        let lo=0, hi=1; t=x;
+        for(let i=0;i<24;i++){
+          const cur = sampleX(t);
+          if(Math.abs(cur-x) < 1e-5) break;
+          if(cur<x) lo=t; else hi=t;
+          t=(lo+hi)/2;
+        }
+      }
+      return sampleY(t<0?0:(t>1?1:t));
+    };
   }
 
   /* ---------- normalisation ---------- */
@@ -177,20 +218,52 @@
   function ensureAudio(){
     if(!actx){ try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ actx=null; } }
     if(actx && actx.state==='suspended') actx.resume();
+    if(actx) loadRealSounds(); // stream the real game sounds once audio unlocks
     return actx;
   }
-  function tick(){
-    if(muted) return; const a = ensureAudio(); if(!a) return;
-    const t = a.currentTime;
-    const o = a.createOscillator(), g = a.createGain();
-    o.type='square'; o.frequency.setValueAtTime(880 + Math.random()*260, t);
+  // attack/decay envelope shared by every voice
+  function env(g, t, peak, dur, atk){
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.06, t+0.004);
-    g.gain.exponentialRampToValueAtTime(0.0001, t+0.045);
-    o.connect(g).connect(a.destination); o.start(t); o.stop(t+0.06);
+    g.gain.exponentialRampToValueAtTime(peak, t+atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  }
+  // single oscillator with optional pitch sweep and filter
+  function tone(freq, dur, o){
+    o = o || {};
+    const a = ensureAudio(); if(!a || muted) return;
+    const t = a.currentTime + (o.at||0);
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    if(o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t+dur);
+    env(g, t, o.gain || 0.08, dur, o.atk || 0.008);
+    let node = osc;
+    if(o.filter){
+      const f = a.createBiquadFilter();
+      f.type = o.filter; f.frequency.value = o.cut || 1200;
+      node.connect(f); node = f;
+    }
+    node.connect(g).connect(a.destination);
+    osc.start(t); osc.stop(t+dur+0.05);
+  }
+  // band-passed white noise burst with a frequency sweep (whooshes, cash)
+  function noise(dur, f0, f1, peak, at){
+    const a = ensureAudio(); if(!a || muted) return;
+    const t = a.currentTime + (at||0);
+    const len = Math.max(1, Math.floor(a.sampleRate*dur));
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
+    const src = a.createBufferSource(); src.buffer = buf;
+    const f = a.createBiquadFilter(); f.type='bandpass'; f.Q.value=1.1;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(f1, t+dur);
+    const g = a.createGain(); env(g, t, peak, dur, dur*0.3);
+    src.connect(f).connect(g).connect(a.destination);
+    src.start(t); src.stop(t+dur+0.05);
   }
   function playChord(notes, dur, type){
-    const a = ensureAudio(); if(!a) return;
+    const a = ensureAudio(); if(!a || muted) return;
     const t0 = a.currentTime;
     notes.forEach((f, i)=>{
       const t = t0 + i*0.06;
@@ -203,7 +276,7 @@
     });
   }
   function shimmer(){
-    const a = ensureAudio(); if(!a) return;
+    const a = ensureAudio(); if(!a || muted) return;
     const t = a.currentTime;
     const o = a.createOscillator(), g = a.createGain();
     o.type='sine'; o.frequency.setValueAtTime(1760, t);
@@ -213,26 +286,139 @@
     g.gain.exponentialRampToValueAtTime(0.0001, t+0.9);
     o.connect(g).connect(a.destination); o.start(t); o.stop(t+1);
   }
-  function revealSound(rarity){
-    if(muted) return;
-    const map = {
-      'Mil-Spec':     { n:[392,523],        d:0.5, t:'triangle' },
-      'Restricted':   { n:[440,587,740],    d:0.6, t:'triangle' },
-      'Classified':   { n:[523,659,784],    d:0.7, t:'triangle' },
-      'Covert':       { n:[523,659,784,1047],d:0.85,t:'sawtooth' },
-      'Rare Special': { n:[659,784,988,1319],d:1.0, t:'sawtooth', s:true }
-    };
-    const m = map[rarity] || map['Mil-Spec'];
-    playChord(m.n, m.d, m.t);
-    if(m.s) shimmer();
+
+  /* Real CS:GO UI sounds: the actual wav files extracted from the game,
+     streamed from a CDN mirror (sourcesounds/csgo). Every synth voice below
+     stays as a fallback until its real buffer has arrived. */
+  const CDN_BASE = 'https://cdn.jsdelivr.net/gh/sourcesounds/csgo@master/sound/ui/';
+  const REAL_SRC = {
+    tick:     'csgo_ui_crate_item_scroll.wav', // the reel tick
+    open:     'csgo_ui_crate_open.wav',        // case cracked open
+    drop1:    'item_drop1_common.wav',         // Mil-Spec ding
+    drop2:    'item_drop2_uncommon.wav',       // Restricted ding
+    drop3:    'item_drop3_rare.wav',           // Classified ding
+    drop4:    'item_drop4_mythical.wav',       // Covert ding
+    drop6:    'item_drop6_ancient.wav',        // knife / gold ding
+    knife:    'item_showcase_knife_01.wav',    // knife showcase layer
+    click:    'buttonclick.wav',
+    hover:    'buttonrollover.wav',
+    back:     'menu_back.wav',
+    cantbuy:  'weapon_cant_buy.wav',           // the "not enough funds" buzz
+    seal:     'csgo_ui_contract_seal.wav',     // trade-up seal
+    purchase: 'store_item_purchased.wav'       // money chime
+  };
+  const DROP_BY_TIER = { 1:'drop1', 2:'drop2', 3:'drop3', 4:'drop4', 5:'drop6' };
+  const realBufs = {};
+  let realLoadStarted = false;
+  function fetchReal(name){
+    fetch(CDN_BASE + REAL_SRC[name])
+      .then(r=>{ if(!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+      .then(b=> new Promise(res=>{ actx.decodeAudioData(b, res, ()=>res(null)); }))
+      .then(buf=>{ if(buf) realBufs[name] = buf; })
+      .catch(()=>{ /* synth fallback keeps working */ });
   }
+  function loadRealSounds(){
+    if(realLoadStarted || !actx || !window.fetch) return;
+    realLoadStarted = true;
+    // phase 1: everything the very first spin needs
+    ['tick','open','drop1','drop2','click','hover','cantbuy'].forEach(fetchReal);
+    // phase 2: the heavy hero sounds follow shortly after
+    setTimeout(()=>{
+      ['drop3','drop4','drop6','knife','seal','purchase','back'].forEach(fetchReal);
+    }, 1500);
+  }
+  function realReady(){ return !!realBufs.tick; }
+  function playReal(name, vol, rate){
+    if(muted) return true; // handled: nothing should play
+    const a = ensureAudio(); if(!a) return false;
+    const buf = realBufs[name]; if(!buf) return false;
+    const src = a.createBufferSource();
+    src.buffer = buf;
+    if(rate) src.playbackRate.value = rate;
+    const g = a.createGain();
+    g.gain.value = vol;
+    src.connect(g).connect(a.destination);
+    try{ src.start(); }catch(e){ return false; }
+    return true;
+  }
+
+  /* Sound effects palette */
+  const SFX = {
+    tick(){
+      if(playReal('tick', 0.3, 0.94 + Math.random()*0.12)) return;
+      tone(880 + Math.random()*260, 0.045, { type:'square', gain:0.05 });
+    },
+    whoosh(){
+      if(playReal('open', 0.75)) return;
+      noise(0.55, 2200, 240, 0.16);
+    },
+    land(tier){
+      if(playReal(DROP_BY_TIER[tier] || 'drop1', 0.8)) return;
+      tone(150, 0.16, { to:58, gain:0.15 + tier*0.03, filter:'lowpass', cut:900 });
+      tone(1200, 0.03, { type:'square', gain:0.03 });
+    },
+    tension(){ if(realReady()) return; tone(196, 1.15, { to:784, gain:0.045, atk:0.7 }); },
+    pop(i){ if(realReady()) return; tone(500 + (i||0)*40, 0.07, { type:'triangle', gain:0.05 }); },
+    sell(){
+      if(playReal('purchase', 0.6)) return;
+      tone(1318, 0.09, { type:'triangle', gain:0.1 });
+      tone(1760, 0.18, { type:'triangle', gain:0.1, at:0.09 });
+      noise(0.12, 5200, 3400, 0.05, 0.02);
+    },
+    topup(){
+      if(playReal('purchase', 0.55)) return;
+      tone(988, 0.08, { type:'triangle', gain:0.09 });
+      tone(1319, 0.16, { type:'triangle', gain:0.09, at:0.08 });
+    },
+    tab(){
+      if(playReal('back', 0.45)) return;
+      tone(440, 0.035, { type:'square', gain:0.03 });
+    },
+    select(){
+      if(playReal('click', 0.5)) return;
+      tone(523, 0.07, { type:'triangle', gain:0.06 });
+    },
+    blip(){
+      if(playReal('hover', 0.4)) return;
+      tone(660, 0.05, { type:'triangle', gain:0.05 });
+    },
+    error(){
+      if(playReal('cantbuy', 0.7)) return;
+      tone(110, 0.16, { type:'sawtooth', gain:0.06, filter:'lowpass', cut:400 });
+    },
+    contract(){
+      if(playReal('seal', 0.8)) return;
+      tone(220, 0.05, { type:'square', gain:0.05 });
+      tone(165, 0.05, { type:'square', gain:0.05, at:0.09 });
+      tone(110, 0.1,  { type:'square', gain:0.06, at:0.18 });
+    },
+    reveal(rarity, opts){
+      const tier = RARITIES[rarity] ? RARITIES[rarity].tier : 1;
+      if(realReady()){
+        // rows already played their own rarity ding during finishSpin
+        if(!opts || !opts.noReal) playReal(DROP_BY_TIER[tier] || 'drop1', 0.8);
+        if(tier >= 5) playReal('knife', 0.5); // gold pull: knife showcase layer
+        return;
+      }
+      const map = {
+        'Mil-Spec':     { n:[392,523],          d:0.5, t:'triangle' },
+        'Restricted':   { n:[440,587,740],      d:0.6, t:'triangle' },
+        'Classified':   { n:[523,659,784],      d:0.7, t:'triangle' },
+        'Covert':       { n:[523,659,784,1047], d:0.85,t:'sawtooth' },
+        'Rare Special': { n:[659,784,988,1319], d:1.0, t:'sawtooth', s:true }
+      };
+      const m = map[rarity] || map['Mil-Spec'];
+      playChord(m.n, m.d, m.t);
+      if(m.s) shimmer();
+    }
+  };
 
   /* ---------- rendering: case grid + opener ---------- */
   function renderCaseGrid(){
     const grid = $('caseGrid');
     grid.innerHTML = CASES.map(c=>(
       '<button class="case-card' + (c.id===selectedCaseId?' is-selected':'') + '" data-case="' + c.id + '" type="button">' +
-        '<img src="' + c.img + '" alt="' + esc(c.name) + '" loading="lazy">' +
+        '<img src="' + c.img + '" alt="' + esc(c.name) + '" loading="lazy" width="172" height="96">' +
         '<div class="case-name">' + esc(c.name) + '</div>' +
       '</button>'
     )).join('');
@@ -240,11 +426,11 @@
   }
   function renderOddsStrip(){
     $('oddsStrip').innerHTML = ODDS.map(o=>{
-      const pct = (o.p*100).toFixed(o.p<0.01?2:2);
+      const pct = (o.p*100).toFixed(2);
       return '<span class="odds-dot" style="--c:' + RARITIES[o.rar].color + '" title="' + esc(o.rar) + ' ' + pct + '%"></span>';
     }).join('');
   }
-  function selectCase(id){
+  function selectCase(id, silent){
     if(spinning) return;
     selectedCaseId = id;
     const c = CASES[id];
@@ -254,13 +440,16 @@
     document.querySelectorAll('.case-card').forEach(el=>{
       el.classList.toggle('is-selected', Number(el.dataset.case)===id);
     });
+    renderIdleReel();
+    updateWallet();
+    if(!silent) SFX.select();
   }
 
   /* ---------- reel ---------- */
   function buildReelTiles(caseId, winner){
     const cells = [];
     for(let i=0;i<REEL_LEN;i++){
-      if(i===WIN_INDEX){ cells.push({ img:winner.img, color:winner.color }); continue; }
+      if(winner && i===WIN_INDEX){ cells.push({ img:winner.img, color:winner.color }); continue; }
       const raw = rollRaw(caseId);
       const w = pickWear(raw);
       cells.push({ img:w.img, color:raw.color });
@@ -269,139 +458,241 @@
       '<div class="reel-item" style="--rc:' + c.color + '"><img src="' + c.img + '" alt=""></div>'
     )).join('');
   }
-  function parseTx(t){
-    if(!t || t==='none') return 0;
-    const m = t.match(/matrix.*\((.+)\)/);
-    if(!m) return 0;
-    const p = m[1].split(',').map(parseFloat);
-    return p.length===6 ? p[4] : (p[12]||0);
+  // one quiet preview row so the panel is never empty before the first spin
+  function renderIdleReel(){
+    if(spinning) return;
+    const host = $('reelRows');
+    host.className = 'reel-rows n1 is-idle';
+    host.innerHTML =
+      '<div class="reel-row">' +
+        '<div class="reel-track" style="transform:translateX(-42%)">' + buildReelTiles(selectedCaseId, null) + '</div>' +
+        '<div class="reel-marker" aria-hidden="true"></div>' +
+        '<div class="reel-fade reel-fade-l"></div>' +
+        '<div class="reel-fade reel-fade-r"></div>' +
+      '</div>';
+    $('reelHint').hidden = false;
   }
-  function reelStep(){
-    const track = $('reelTrack');
-    const a = track.children[0], b = track.children[1];
-    if(a && b) return b.offsetLeft - a.offsetLeft;
-    return 126;
+
+  function getBatch(){
+    const el = document.querySelector('input[name="batch"]:checked');
+    return el ? Number(el.value) : 1;
   }
-  function startTicks(dur){
-    const track = $('reelTrack');
-    const step = reelStep();
-    const vpCenter = $('reelViewport').clientWidth/2;
-    let lastIdx = -1;
+
+  /* Tick loop driven by the analytic easing curve: no getComputedStyle,
+     no layout reads per frame, works for every row simultaneously. */
+  function startTicks(rows, totalMs){
+    const ease = cubicBezier(SPIN_EASE[0], SPIN_EASE[1], SPIN_EASE[2], SPIN_EASE[3]);
     const t0 = performance.now();
+    let lastTickAt = -999;
+    let tensionPlayed = false;
     function frame(now){
       if(!spinning) return;
-      const tx = parseTx(getComputedStyle(track).transform);
-      const idx = Math.floor((vpCenter - tx)/step);
-      if(idx!==lastIdx){ lastIdx = idx; tick(); }
-      if(now - t0 < dur*1000 + 150) requestAnimationFrame(frame);
+      const el = now - t0;
+      let crossed = false;
+      for(const r of rows){
+        const p = Math.min(1, el / r.dur);
+        const tx = ease(p) * r.target;
+        const idx = Math.floor((r.vpCenter - tx) / r.step);
+        if(idx !== r.lastIdx){ r.lastIdx = idx; crossed = true; }
+      }
+      if(crossed && now - lastTickAt > 42){ lastTickAt = now; SFX.tick(); }
+      if(!tensionPlayed && totalMs - el < 1300 && totalMs - el > 0){ tensionPlayed = true; SFX.tension(); }
+      if(el < totalMs + 250) requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
   }
 
   function spin(){
     if(spinning) return;
-    if(wallet < KEY_COST){ walletShake(); toast('Not enough funds. Tap the wallet to top up.','bad'); return; }
-    charge(KEY_COST);
+    const batch = getBatch();
+    const cost = KEY_COST * batch;
+    if(wallet < cost){
+      walletShake(); SFX.error();
+      toast('Not enough funds. Tap the wallet to top up.','bad');
+      return;
+    }
+    charge(cost);
     ensureAudio();
+    SFX.whoosh();
 
     spinning = true;
-    const opener = $('opener'); opener.classList.add('is-spinning');
+    $('opener').classList.add('is-spinning');
     $('btnOpen').disabled = true;
     $('reelHint').hidden = true;
 
     const caseId = selectedCaseId;
-    const winner = makePull(rollRaw(caseId), caseId);
+    const winners = [];
+    for(let i=0;i<batch;i++) winners.push(makePull(rollRaw(caseId), caseId));
 
-    const track = $('reelTrack');
-    track.innerHTML = buildReelTiles(caseId, winner);
-    track.style.transition = 'none';
-    track.style.transform = 'translateX(0)';
-    void track.offsetWidth; // reflow
+    // build N rows
+    const host = $('reelRows');
+    host.className = 'reel-rows n' + batch;
+    host.innerHTML = winners.map(w=>(
+      '<div class="reel-row">' +
+        '<div class="reel-track">' + buildReelTiles(caseId, w) + '</div>' +
+        '<div class="reel-marker" aria-hidden="true"></div>' +
+        '<div class="reel-fade reel-fade-l"></div>' +
+        '<div class="reel-fade reel-fade-r"></div>' +
+      '</div>'
+    )).join('');
 
-    const winEl = track.children[WIN_INDEX];
-    const vpCenter = $('reelViewport').clientWidth/2;
-    const itemW = winEl.offsetWidth;
-    const jitter = (Math.random()*2 - 1) * (itemW*0.34);
-    const target = vpCenter - (winEl.offsetLeft + itemW/2) - jitter;
-
-    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-    if(reduce){
-      track.style.transition = 'transform .45s ease-out';
-      track.style.transform = 'translateX(' + target + 'px)';
-      setTimeout(()=>finishSpin(winner, target, winEl), 480);
-      return;
-    }
-
-    const dur = 6.2;
-    requestAnimationFrame(()=>{
-      track.style.transition = 'transform ' + dur + 's cubic-bezier(0.08,0.75,0.14,1)';
-      track.style.transform = 'translateX(' + target + 'px)';
+    const rows = [];
+    const rowEls = host.querySelectorAll('.reel-row');
+    rowEls.forEach((row, i)=>{
+      const track = row.querySelector('.reel-track');
+      track.style.transition = 'none';
+      track.style.transform = 'translateX(0)';
     });
-    startTicks(dur);
+    void host.offsetWidth; // single reflow before measuring
 
-    const done = (e)=>{
-      if(e.propertyName !== 'transform') return;
-      track.removeEventListener('transitionend', done);
-      finishSpin(winner, target, winEl);
-    };
-    track.addEventListener('transitionend', done);
-    // safety fallback
-    setTimeout(()=>{ if(spinning) finishSpin(winner, target, winEl); }, dur*1000 + 900);
+    rowEls.forEach((row, i)=>{
+      const track = row.querySelector('.reel-track');
+      const winEl = track.children[WIN_INDEX];
+      const vpCenter = row.clientWidth / 2;
+      const itemW = winEl.offsetWidth;
+      const jitter = (Math.random()*2 - 1) * (itemW*0.34);
+      const target = vpCenter - (winEl.offsetLeft + itemW/2) - jitter;
+      rows.push({ track, winEl, item:winners[i], target, step:itemW + 8, vpCenter, lastIdx:-1 });
+    });
+
+    const baseDur = spinDuration();
+
+    const totalMs = (baseDur + SPIN_STAGGER*(batch-1)) * 1000;
+    rows.forEach((r, i)=>{
+      r.dur = (baseDur + SPIN_STAGGER*i) * 1000;
+    });
+
+    // Double rAF: guarantees the reset transform (translateX(0)) has been
+    // PAINTED before the transition is declared. Without this frame boundary
+    // the browser can coalesce the reset and the target into one style
+    // recalc on freshly-inserted nodes, and the reel jumps instantly.
+    requestAnimationFrame(()=>{ requestAnimationFrame(()=>{
+      if(!spinning) return;
+      rows.forEach((r)=>{
+        r.track.style.transition = 'transform ' + (r.dur/1000) + 's cubic-bezier(' + SPIN_EASE.join(',') + ')';
+        r.track.style.transform = 'translateX(' + r.target + 'px)';
+      });
+      startTicks(rows, totalMs);
+
+      // finish when the LAST row settles
+      const last = rows[rows.length-1];
+      const done = (e)=>{
+        if(e.propertyName !== 'transform') return;
+        last.track.removeEventListener('transitionend', done);
+        finishSpin(rows);
+      };
+      last.track.addEventListener('transitionend', done);
+      // safety fallback
+      setTimeout(()=>{ if(spinning) finishSpin(rows); }, totalMs + 900);
+    }); });
   }
 
-  function finishSpin(winner, target, winEl){
+  function finishSpin(rows){
     if(!spinning) return;
     spinning = false;
-    const track = $('reelTrack');
-    track.style.transform = 'translateX(' + target + 'px)';
-    if(winEl) winEl.classList.add('is-winner');
+    let landed = 0;
+    rows.forEach((r, i)=>{
+      r.track.style.transition = 'none';
+      r.track.style.transform = 'translateX(' + r.target + 'px)';
+      if(r.winEl) r.winEl.classList.add('is-winner');
+      // stagger the landing thuds to match the row order
+      const tier = RARITIES[r.item.rarity] ? RARITIES[r.item.rarity].tier : 1;
+      setTimeout(()=>{ SFX.land(tier); SFX.pop(i); }, i*220);
+      landed++;
+    });
     $('opener').classList.remove('is-spinning');
 
-    addToInventory(winner);
-    addToHistory(winner);
-    opens++; save.opens();
+    rows.forEach(r=>{
+      addToInventory(r.item);
+      addToHistory(r.item);
+    });
+    opens += landed; save.opens();
     updateTabCounts();
 
-    revealSound(winner.rarity);
-    showReveal(winner, {});
-    $('btnOpen').disabled = wallet < KEY_COST;
+    // best rarity of the batch drives the reveal fanfare
+    let best = rows[0].item;
+    for(const r of rows){ if(RARITIES[r.item.rarity].tier > RARITIES[best.rarity].tier) best = r.item; }
+    SFX.reveal(best.rarity, { noReal:true });
+    showReveal(rows.map(r=>r.item), { again:true });
+    updateWallet();
   }
 
   /* ---------- reveal overlay ---------- */
-  function showReveal(item, opts){
+  function showReveal(items, opts){
     opts = opts || {};
-    currentReveal = item;
-    const card = $('revealCard');
-    card.style.setProperty('--glow', item.color);
-    $('revealGlow').style.background = 'radial-gradient(closest-side, ' + item.color + ', transparent 72%)';
-    const rr = $('revealRarity'); rr.textContent = item.rarity;
-    $('revealImg').src = item.img;
-    $('revealImg').alt = item.name;
-    $('revealWeapon').textContent = item.weapon;
-    $('revealSkin').textContent = item.skin;
+    currentReveal = items;
+    lastFocus = document.activeElement;
 
-    const tags = [];
-    tags.push('<span class="tag">' + esc(item.wear) + '</span>');
-    if(item.stattrak) tags.push('<span class="tag tag-st">StatTrak\u2122</span>');
-    tags.push('<span class="tag">' + esc(item.caseName) + '</span>');
-    $('revealTags').innerHTML = tags.join('');
+    const n = items.length;
+    $('revealTitle').textContent = 'You unboxed ' + n + (n===1 ? ' item' : ' items');
 
-    $('revealPrice').textContent = money(item.price);
-    $('btnSellNow').textContent = 'Sell for ' + money(item.price);
-    $('btnAgain').style.display = opts.contract ? 'none' : '';
+    const grid = $('revealGrid');
+    grid.className = 'reveal-grid n' + n;
+    grid.innerHTML = items.map((it, i)=>(
+      '<div class="rv-item" style="--rc:' + it.color + ';--i:' + i + '">' +
+        '<span class="rv-rarity">' + esc(it.rarity) + '</span>' +
+        '<img class="rv-img" src="' + it.img + '" alt="' + esc(it.name) + '" width="200" height="64">' +
+        '<div class="rv-weapon">' + esc(it.weapon) + '</div>' +
+        '<div class="rv-skin">' + esc(it.skin) + '</div>' +
+        '<div class="rv-tags">' +
+          '<span class="tag">' + esc(it.wear) + '</span>' +
+          (it.stattrak ? '<span class="tag tag-st">StatTrak\u2122</span>' : '') +
+        '</div>' +
+        '<div class="rv-price">' + money(it.price) + '</div>' +
+      '</div>'
+    )).join('');
+
+    const sum = $('revealSummary');
+    if(n > 1){
+      const total = items.reduce((s,i)=>s+i.price, 0);
+      sum.hidden = false;
+      sum.innerHTML =
+        '<span>Best pull <b style="color:' + (bestItem(items).hex) + '">' + esc(bestItem(items).skin) + '</b></span>' +
+        '<span class="sum-total">' + money(total) + '</span>';
+    } else {
+      sum.hidden = true;
+      sum.innerHTML = '';
+    }
+
+    const total = items.reduce((s,i)=>s+i.price, 0);
+    $('btnSellAll').textContent = (n>1 ? 'Sell all for ' : 'Sell for ') + money(total);
+    $('btnAgain').hidden = !opts.again;
 
     $('reveal').hidden = false;
+    $('btnKeep').focus();
   }
-  function closeReveal(){ $('reveal').hidden = true; currentReveal = null; }
+  function bestItem(items){
+    let best = items[0];
+    for(const it of items){
+      if(RARITIES[it.rarity].tier > RARITIES[best.rarity].tier ||
+         (RARITIES[it.rarity].tier === RARITIES[best.rarity].tier && it.price > best.price)) best = it;
+    }
+    return best;
+  }
+  function closeReveal(){
+    $('reveal').hidden = true;
+    currentReveal = [];
+    if(lastFocus && lastFocus.focus) lastFocus.focus();
+    lastFocus = null;
+  }
 
   /* ---------- economy ---------- */
   function charge(n){ wallet = Math.round((wallet-n)*100)/100; save.wallet(); updateWallet(); }
-  function topUp(){ wallet = Math.round((wallet+TOPUP)*100)/100; save.wallet(); updateWallet(); toast('Added ' + money(TOPUP) + ' to your wallet','good'); }
+  function topUp(){
+    wallet = Math.round((wallet+TOPUP)*100)/100; save.wallet(); updateWallet();
+    SFX.topup();
+    toast('Added ' + money(TOPUP) + ' to your wallet','good');
+  }
   function updateWallet(){
+    const batch = getBatch();
+    const cost = KEY_COST * batch;
     $('walletAmount').textContent = money(wallet);
-    $('btnOpen').disabled = spinning || wallet < KEY_COST;
-    $('btnOpenCost').textContent = money(KEY_COST);
+    $('btnOpen').disabled = spinning || wallet < cost;
+    $('btnOpenCost').textContent = money(cost);
+    const label = $('btnOpen').querySelector('.btn-open-label');
+    if(label) label.textContent = batch > 1 ? 'Open ' + batch + ' Cases' : 'Open Case';
+    const sub = $('openerSub');
+    if(sub) sub.textContent = batch > 1 ? batch + 'x ' + CASES[selectedCaseId].name : 'Selected case';
   }
   function walletShake(){ const w=$('wallet'); w.classList.remove('shake'); void w.offsetWidth; w.classList.add('shake'); }
 
@@ -413,14 +704,28 @@
     inventory.splice(i,1); save.inv();
     contractPick = contractPick.filter(x=>x!==id);
     updateTabCounts(); renderInventory(); renderContracts();
+    SFX.sell();
     toast('Sold ' + it.skin + ' for ' + money(it.price),'good');
+  }
+  function sellReveal(){
+    const items = currentReveal.slice();
+    if(!items.length) return;
+    const total = items.reduce((s,i)=>s+i.price, 0);
+    const ids = items.map(i=>i.id);
+    inventory = inventory.filter(it=>ids.indexOf(it.id)<0);
+    contractPick = contractPick.filter(id=>ids.indexOf(id)<0);
+    wallet = Math.round((wallet+total)*100)/100; save.wallet(); save.inv();
+    closeReveal();
+    updateWallet(); updateTabCounts(); renderInventory(); renderContracts();
+    SFX.sell();
+    toast('Sold ' + items.length + (items.length===1?' item':' items') + ' for ' + money(total),'good');
   }
 
   /* ---------- inventory + history ---------- */
   function addToInventory(item){ inventory.push(item); save.inv(); }
   function addToHistory(item){
     history.unshift({ weapon:item.weapon, skin:item.skin, wear:item.wear, rarity:item.rarity,
-      color:item.color, img:item.img, price:item.price, caseName:item.caseName, stattrak:item.stattrak, ts:item.ts });
+      color:item.color, hex:item.hex, img:item.img, price:item.price, caseName:item.caseName, stattrak:item.stattrak, ts:item.ts });
     if(history.length>60) history.length = 60;
     save.hist();
   }
@@ -460,22 +765,27 @@
     let best = null;
     for(const it of inventory){ if(!best || it.price>best.price) best = it; }
     const be = $('statBest');
-    if(best){ be.textContent = best.skin; be.style.color = best.hex || best.color; be.title = best.name + ' - ' + money(best.price); }
+    if(best){ be.textContent = best.skin; be.style.color = best.hex || best.color; be.title = best.name + ' \u00b7 ' + money(best.price); }
     else { be.textContent = 'None'; be.style.color=''; be.title=''; }
 
     renderHistory();
   }
   function renderHistory(){
     const el = $('history');
-    if(!history.length){ el.innerHTML = '<li class="hist-empty" style="color:var(--text-faint);font-size:13px;padding:6px 2px;">Nothing yet. Your opened items appear here.</li>'; return; }
+    if(!history.length){
+      el.innerHTML = '<li class="hist-empty">Nothing yet. Your opened items appear here.</li>';
+      return;
+    }
     el.innerHTML = history.map(h=>{
       const d = new Date(h.ts);
       const time = d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
       return '<li class="hist-row" style="--rc:' + h.color + '">' +
-        '<img class="hist-img" src="' + h.img + '" alt="" loading="lazy">' +
-        '<div><div class="hist-name"><span class="w">' + esc(h.weapon) + '</span> ' + esc(h.skin) +
-          (h.stattrak?' <span style="color:#f5b942;font-size:11px;">ST\u2122</span>':'') + '</div>' +
-          '<div class="hist-case">' + esc(h.caseName) + ' &middot; ' + esc(WEAR_SHORT[h.wear]||h.wear) + '</div></div>' +
+        '<img class="hist-img" src="' + h.img + '" alt="" loading="lazy" width="44" height="34">' +
+        '<div class="hist-body">' +
+          '<div class="hist-name"><span class="hist-weapon">' + esc(h.weapon) + '</span> ' + esc(h.skin) +
+          (h.stattrak?' <span style="color:var(--warning);font-size:11px;">ST\u2122</span>':'') + '</div>' +
+          '<div class="hist-case">' + esc(h.caseName) + ' \u00b7 ' + esc(WEAR_SHORT[h.wear]||h.wear) + '</div>' +
+        '</div>' +
         '<div class="hist-meta"><div class="hist-price">' + money(h.price) + '</div><div class="hist-time">' + time + '</div></div>' +
       '</li>';
     }).join('');
@@ -508,7 +818,7 @@
       const picked = contractPick.indexOf(it.id)>=0;
       const dim = contractRarity && it.rarity!==contractRarity ? ' dim' : '';
       return '<div class="pool-item' + (picked?' is-picked':'') + dim + '" data-pick="' + it.id + '" style="--rc:' + it.color + '">' +
-        '<img src="' + it.img + '" alt="" loading="lazy">' +
+        '<img src="' + it.img + '" alt="" loading="lazy" width="144" height="70">' +
         '<div class="pi-skin">' + esc(it.skin) + '</div>' +
         '<div class="pi-price">' + money(it.price) + '</div>' +
       '</div>';
@@ -534,7 +844,7 @@
       if(it){
         html += '<div class="slot filled" style="--rc:' + it.color + '">' +
           '<span class="slot-num">' + (i+1) + '</span>' +
-          '<button class="slot-x" data-unpick="' + it.id + '" type="button">\u00d7</button>' +
+          '<button class="slot-x" data-unpick="' + it.id + '" type="button" aria-label="Remove ' + esc(it.skin) + '">\u00d7</button>' +
           '<img src="' + it.img + '" alt=""></div>';
       } else {
         html += '<div class="slot"><span class="slot-num">' + (i+1) + '</span></div>';
@@ -562,7 +872,8 @@
     if(!contractRarity) contractRarity = it.rarity;
     const idx = contractPick.indexOf(id);
     if(idx>=0){ contractPick.splice(idx,1); if(!contractPick.length) contractRarity = null; }
-    else { if(contractPick.length>=10){ toast('A contract uses exactly 10 items','bad'); return; } contractPick.push(id); }
+    else { if(contractPick.length>=10){ SFX.error(); toast('A contract uses exactly 10 items','bad'); return; } contractPick.push(id); }
+    SFX.blip();
     renderContracts();
   }
   function setRarityFilter(r){
@@ -573,6 +884,7 @@
   function doTradeUp(){
     if(contractPick.length!==10 || !contractRarity) return;
     const nt = NEXT_TIER[contractRarity]; if(!nt) return;
+    SFX.contract();
     // remove the 10 items
     const ids = contractPick.slice();
     inventory = inventory.filter(it=>ids.indexOf(it.id)<0);
@@ -584,8 +896,8 @@
     addToHistory(result);
     contractPick = []; contractRarity = null;
     updateTabCounts(); renderContracts(); renderInventory();
-    revealSound(result.rarity);
-    showReveal(result, { contract:true });
+    SFX.reveal(result.rarity);
+    showReveal([result], { contract:true });
     toast('Contract complete','good');
   }
 
@@ -595,6 +907,7 @@
     document.querySelectorAll('.view').forEach(v=>{ v.hidden = (v.id !== 'view-'+name); });
     if(name==='inventory') renderInventory();
     if(name==='contracts') renderContracts();
+    SFX.tab();
     window.scrollTo({ top:0, behavior:'smooth' });
   }
 
@@ -610,7 +923,10 @@
 
   /* ---------- mute ---------- */
   function updateMuteBtn(){ $('muteBtn').setAttribute('aria-pressed', muted?'true':'false'); }
-  function toggleMute(){ muted = !muted; save.muted(); updateMuteBtn(); if(!muted){ ensureAudio(); tick(); } }
+  function toggleMute(){
+    muted = !muted; save.muted(); updateMuteBtn();
+    if(!muted){ ensureAudio(); SFX.blip(); }
+  }
 
   /* ---------- events ---------- */
   function bindEvents(){
@@ -630,10 +946,23 @@
 
     $('btnAgain').addEventListener('click', ()=>{ closeReveal(); spin(); });
     $('btnKeep').addEventListener('click', closeReveal);
-    $('btnSellNow').addEventListener('click', ()=>{ if(currentReveal){ const id=currentReveal.id; closeReveal(); sellItem(id); } });
+    $('btnSellAll').addEventListener('click', sellReveal);
     $('revealBackdrop').addEventListener('click', closeReveal);
 
+    // batch size changes update the open cost and button state
+    document.querySelectorAll('input[name="batch"]').forEach(r=>{
+      r.addEventListener('change', ()=>{ updateWallet(); SFX.blip(); });
+    });
+
+    // spin speed is a pure preference, but lock it while a spin is running
+    document.querySelectorAll('input[name="speed"]').forEach(r=>{
+      r.addEventListener('change', ()=>{
+        if(spinning){ r.checked = false; document.querySelector('input[name="speed"][value="' + spinSpeed + '"]').checked = true; return; }
+        if(SPIN_SPEEDS[r.value]){ spinSpeed = r.value; save.speed(); SFX.blip(); }
+      });
+    });
     $('invSort').addEventListener('change', renderInventory);
+
     $('btnClearInv').addEventListener('click', ()=>{
       if(!inventory.length) return;
       if(confirm('Clear your entire inventory and history? This cannot be undone.')){
@@ -656,14 +985,16 @@
   /* ---------- init ---------- */
   function init(){
     if(!window.CASE_DATA || !window.CASE_DATA.length){
-      document.querySelector('.main').innerHTML = '<p style="color:var(--text-dim);padding:40px 0;">Case data failed to load. Make sure data.js is present.</p>';
+      $('main').innerHTML = '<p style="color:var(--body);padding:40px 0;">Case data failed to load. Make sure data.js is present.</p>';
       return;
     }
     CASES = normalize(window.CASE_DATA);
     load();
+    const spEl = document.querySelector('input[name="speed"][value="' + spinSpeed + '"]');
+    if(spEl) spEl.checked = true;
     renderCaseGrid();
     renderOddsStrip();
-    selectCase(0);
+    selectCase(0, true);
     updateWallet();
     updateMuteBtn();
     updateTabCounts();
